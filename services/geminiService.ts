@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SkinAnalysisResult, Message } from "../types";
+import { SkinAnalysisResult, Message, Dermatologist } from "../types";
 
 // Initialize Gemini Client
 // Note: In a production environment, never expose API keys on the client side.
@@ -7,6 +7,8 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeSkinImage = async (base64Image: string): Promise<SkinAnalysisResult> => {
   try {
+    // Determine mime type from base64 string
+    const mimeType = base64Image.substring(base64Image.indexOf(":") + 1, base64Image.indexOf(";"));
     // Remove data URL prefix if present (e.g., "data:image/jpeg;base64,")
     const base64Data = base64Image.split(',')[1] || base64Image;
 
@@ -16,7 +18,7 @@ export const analyzeSkinImage = async (base64Image: string): Promise<SkinAnalysi
         parts: [
           {
             inlineData: {
-              mimeType: "image/jpeg",
+              mimeType: mimeType || "image/jpeg",
               data: base64Data,
             },
           },
@@ -105,6 +107,49 @@ export const sendChatQuery = async (history: Message[], currentPrompt: string): 
   } catch (error) {
     console.error("Chat Error:", error);
     throw new Error("Failed to send message.");
+  }
+};
+
+export const findDermatologists = async (lat: number, long: number): Promise<Dermatologist[]> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: {
+        parts: [
+          {
+            text: `Find 4-5 reputable dermatologists or skin clinics near these coordinates: Latitude ${lat}, Longitude ${long}. 
+            Provide real or realistic representative data including name, clinic name, approximate address, phone number, rating (out of 5), and estimated distance.
+            
+            Return ONLY raw JSON.`
+          }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              clinic_name: { type: Type.STRING },
+              address: { type: Type.STRING },
+              phone: { type: Type.STRING },
+              rating: { type: Type.STRING },
+              distance: { type: Type.STRING }
+            },
+            required: ["name", "clinic_name", "address", "phone", "rating", "distance"]
+          }
+        }
+      }
+    });
+
+    if (!response.text) return [];
+    
+    return JSON.parse(response.text) as Dermatologist[];
+  } catch (error) {
+    console.error("Dermatologist Search Error:", error);
+    throw new Error("Failed to find dermatologists.");
   }
 };
 

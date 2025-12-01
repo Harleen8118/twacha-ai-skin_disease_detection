@@ -11,10 +11,13 @@ import {
   Menu,
   X,
   Paperclip,
-  Camera
+  Camera,
+  MapPin,
+  Phone,
+  Star
 } from 'lucide-react';
-import { AnalysisState, ChatSession, Message, SkinAnalysisResult } from '../types';
-import { analyzeSkinImage, sendChatQuery, fileToBase64 } from '../services/geminiService';
+import { AnalysisState, ChatSession, Message, SkinAnalysisResult, Dermatologist } from '../types';
+import { analyzeSkinImage, sendChatQuery, fileToBase64, findDermatologists } from '../services/geminiService';
 import AnalysisView from './AnalysisView';
 
 interface DashboardProps {
@@ -30,6 +33,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  
+  // Dermatologist Finder State
+  const [isDermModalOpen, setIsDermModalOpen] = useState(false);
+  const [dermatologists, setDermatologists] = useState<Dermatologist[]>([]);
+  const [isLoadingDerms, setIsLoadingDerms] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -163,6 +172,43 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     }
   };
 
+  // --- Location / Dermatologist Finder ---
+
+  const handleFindDermatologists = () => {
+    setIsDermModalOpen(true);
+    setDermatologists([]);
+    setLocationError(null);
+    setIsLoadingDerms(true);
+
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser.");
+      setIsLoadingDerms(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const results = await findDermatologists(latitude, longitude);
+          setDermatologists(results);
+        } catch (err) {
+          setLocationError("Failed to fetch dermatologist data.");
+        } finally {
+          setIsLoadingDerms(false);
+        }
+      },
+      (error) => {
+        let msg = "Unable to retrieve your location.";
+        if (error.code === error.PERMISSION_DENIED) {
+          msg = "Location permission denied. Please enable it to find doctors nearby.";
+        }
+        setLocationError(msg);
+        setIsLoadingDerms(false);
+      }
+    );
+  };
+
   // --- Handlers ---
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -254,6 +300,77 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       
+      {/* Dermatologist Modal */}
+      {isDermModalOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-white rounded-t-2xl">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <MapPin className="text-indigo-600" size={20} />
+                Nearby Dermatologists
+              </h3>
+              <button 
+                onClick={() => setIsDermModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50">
+              {isLoadingDerms ? (
+                <div className="flex flex-col items-center justify-center py-10 text-slate-500 gap-3">
+                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                   <p className="text-sm">Locating top specialists near you...</p>
+                </div>
+              ) : locationError ? (
+                <div className="text-center py-10 px-4">
+                  <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm border border-red-100 mb-4">
+                    {locationError}
+                  </div>
+                  <button 
+                    onClick={handleFindDermatologists}
+                    className="text-indigo-600 hover:text-indigo-700 font-medium text-sm hover:underline"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : dermatologists.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  No dermatologists found in this area.
+                </div>
+              ) : (
+                dermatologists.map((derm, idx) => (
+                  <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-slate-800">{derm.name}</h4>
+                        <p className="text-xs text-indigo-600 font-medium">{derm.clinic_name}</p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded text-xs font-bold border border-yellow-100">
+                        <Star size={12} fill="currentColor" />
+                        {derm.rating}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1.5 mt-3">
+                      <div className="flex items-start gap-2 text-sm text-slate-600">
+                        <MapPin size={14} className="mt-0.5 text-slate-400 shrink-0" />
+                        <span>{derm.address} <span className="text-slate-400 text-xs">({derm.distance})</span></span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Phone size={14} className="text-slate-400 shrink-0" />
+                        <span>{derm.phone}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Camera Modal */}
       {isCameraOpen && (
         <div className="fixed inset-0 z-[60] bg-black bg-opacity-95 flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
@@ -306,13 +423,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
         </div>
 
         {/* New Chat Button */}
-        <div className="p-4">
+        <div className="p-4 space-y-3">
           <button 
             onClick={createNewSession}
             className="w-full flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium py-3 px-4 rounded-xl transition-colors border border-indigo-200"
           >
             <Plus size={18} />
             New Consultation
+          </button>
+
+          <button 
+            onClick={handleFindDermatologists}
+            className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-medium py-2 px-4 rounded-xl transition-colors border border-slate-200 text-sm"
+          >
+            <MapPin size={16} className="text-emerald-500" />
+            Find Dermatologists
           </button>
         </div>
 

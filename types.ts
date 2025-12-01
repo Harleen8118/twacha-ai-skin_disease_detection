@@ -28,3 +28,12 @@ export interface AnalysisState {
   isLoading: boolean;
   error: string | null;
 }
+
+export interface Dermatologist {
+  name: string;
+  clinic_name: string;
+  address: string;
+  phone: string;
+  rating: string;
+  distance: string;
+}
