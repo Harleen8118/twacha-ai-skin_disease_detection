@@ -1,5 +1,7 @@
 {
   "name": "Twacha AI - Advanced Skin Analysis",
   "description": "Next-generation AI dermatological classification system using Finetuned Qwen 2 VL.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

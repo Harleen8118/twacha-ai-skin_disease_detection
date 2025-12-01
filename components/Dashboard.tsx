@@ -10,7 +10,8 @@ import {
   Trash2,
   Menu,
   X,
-  Paperclip
+  Paperclip,
+  Camera
 } from 'lucide-react';
 import { AnalysisState, ChatSession, Message, SkinAnalysisResult } from '../types';
 import { analyzeSkinImage, sendChatQuery, fileToBase64 } from '../services/geminiService';
@@ -28,9 +29,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>({ isLoading: false, error: null });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // --- Effects ---
 
@@ -89,8 +93,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
         setCurrentSessionId(newSessions[0].id);
       } else {
         // If we deleted the last one, create a new one immediately
-        // We need to do this carefully to avoid state race conditions, 
-        // but creating a fresh empty state is safe here.
         const freshSession: ChatSession = {
             id: Date.now().toString(),
             title: 'New Consultation',
@@ -115,6 +117,50 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
       }
       return session;
     }));
+  };
+
+  // --- Camera Functions ---
+
+  const startCamera = async () => {
+    setIsCameraOpen(true);
+    // Add a small delay to ensure modal is rendered
+    setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } 
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error("Error accessing camera:", err);
+        setAnalysisState({ isLoading: false, error: "Could not access camera. Please check permissions." });
+        setIsCameraOpen(false);
+      }
+    }, 100);
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  const captureImage = () => {
+    if (videoRef.current && canvasRef.current) {
+      const context = canvasRef.current.getContext('2d');
+      if (context) {
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
+        context.drawImage(videoRef.current, 0, 0);
+        const dataUrl = canvasRef.current.toDataURL('image/jpeg');
+        setPreviewImage(dataUrl);
+        stopCamera();
+      }
+    }
   };
 
   // --- Handlers ---
@@ -208,6 +254,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       
+      {/* Camera Modal */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 z-[60] bg-black bg-opacity-95 flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-2xl bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
+            <video ref={videoRef} autoPlay playsInline className="w-full h-auto max-h-[70vh] object-contain mx-auto" />
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
+          <div className="flex gap-6 mt-8">
+            <button 
+              onClick={stopCamera}
+              className="bg-slate-800 text-white px-8 py-3 rounded-full font-medium hover:bg-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={captureImage}
+              className="bg-indigo-600 text-white px-8 py-3 rounded-full font-medium flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30"
+            >
+              <Camera size={20} />
+              Capture Photo
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -328,13 +399,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
                     
                     {/* User Image Attachment */}
                     {msg.image && (
-                      <div className="mb-3 rounded-lg overflow-hidden max-h-64">
-                        <img
-                          src={msg.image}
-                          alt="Upload"
-                          className="w-auto object-cover"
-                          style={{ maxHeight: '16rem', objectPosition: 'center 35%' }}
-                        />
+                      <div className="mb-3 rounded-lg overflow-hidden">
+                        <img src={msg.image} alt="Upload" className="max-h-64 w-auto object-cover" />
                       </div>
                     )}
                     
@@ -405,6 +471,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
             )}
             
             <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-300 transition-all shadow-sm">
+              <button 
+                onClick={startCamera}
+                className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                title="Use Camera"
+              >
+                <Camera size={20} />
+              </button>
+
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
